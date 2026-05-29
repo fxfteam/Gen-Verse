@@ -166,7 +166,7 @@ const sanitizePlayer = (player) => ({
   worldId: typeof player.worldId === "string" && player.worldId ? player.worldId : worlds[0].id,
   position: player.position || { x: 0, y: 0, z: 0 },
   rotationY: Number(player.rotationY || 0),
-  animation: player.animation === "walk" ? "walk" : "idle",
+  animation: ["walk", "jump"].includes(player.animation) ? player.animation : "idle",
 });
 
 const sanitizeMessage = (message) => ({

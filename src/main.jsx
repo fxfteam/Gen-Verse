@@ -489,6 +489,9 @@ function LocalAvatar({ player, vrmUrl, onMove }) {
   const previousPosition = useRef(new THREE.Vector3());
   const movementDelta = useRef(new THREE.Vector3());
   const controlTarget = useRef(new THREE.Vector3());
+  const jumpVelocity = useRef(0);
+  const isJumping = useRef(false);
+  const jumpTime = useRef(0);
 
   useFrame((state, delta) => {
     if (!group.current) return;
@@ -523,6 +526,26 @@ function LocalAvatar({ player, vrmUrl, onMove }) {
     motion.current.moving = moving;
     motion.current.speed = speed / MOVEMENT_SPEED;
 
+    // ジャンプ処理
+    if (keys.current.jump && !isJumping.current && group.current.position.y < 0.05) {
+      jumpVelocity.current = 8.5;
+      isJumping.current = true;
+      jumpTime.current = 0;
+    }
+
+    // ジャンプ物理演算
+    if (isJumping.current) {
+      jumpTime.current += frameDelta;
+      jumpVelocity.current -= 20 * frameDelta;
+      group.current.position.y += jumpVelocity.current * frameDelta;
+
+      if (group.current.position.y <= 0) {
+        group.current.position.y = 0;
+        isJumping.current = false;
+        jumpVelocity.current = 0;
+      }
+    }
+
     if (moving) {
       group.current.position.addScaledVector(velocity.current, frameDelta);
 
@@ -547,11 +570,11 @@ function LocalAvatar({ player, vrmUrl, onMove }) {
       controls.current.update();
     }
 
-    const animation = moving ? "walk" : "idle";
+    const animation = moving ? "walk" : isJumping.current ? "jump" : "idle";
     onMove({
       position: {
         x: group.current.position.x,
-        y: 0,
+        y: group.current.position.y,
         z: group.current.position.z,
       },
       rotationY: group.current.rotation.y,
@@ -563,7 +586,7 @@ function LocalAvatar({ player, vrmUrl, onMove }) {
     <>
       <group
         ref={group}
-        position={[player.position?.x || 0, 0, player.position?.z || 0]}
+        position={[player.position?.x || 0, player.position?.y || 0, player.position?.z || 0]}
         rotation-y={player.rotationY || 0}
       >
         <AvatarBody player={player} vrmUrl={vrmUrl} isLocal motionRef={motion} />
@@ -607,13 +630,14 @@ function RemoteAvatar({ player }) {
 function AvatarBody({ player, vrmUrl, isLocal = false, motionRef }) {
   const resolvedVrmUrl = vrmUrl || player.avatarUrl;
   const moving = player.animation === "walk";
+  const jumping = player.animation === "jump";
 
   return (
     <group>
       {resolvedVrmUrl ? (
-        <VRMAvatar url={resolvedVrmUrl} moving={moving} motionRef={motionRef} />
+        <VRMAvatar url={resolvedVrmUrl} moving={moving} jumping={jumping} motionRef={motionRef} />
       ) : (
-        <FallbackAvatar color={player.color} moving={moving} motionRef={motionRef} />
+        <FallbackAvatar color={player.color} moving={moving} jumping={jumping} motionRef={motionRef} />
       )}
       <Html center position={[0, 2.38, 0]} className="nameplate-wrapper">
         <div className={isLocal ? "nameplate local" : "nameplate"}>{player.name || "Guest"}</div>
@@ -622,7 +646,7 @@ function AvatarBody({ player, vrmUrl, isLocal = false, motionRef }) {
   );
 }
 
-function VRMAvatar({ url, moving, motionRef }) {
+function VRMAvatar({ url, moving, jumping, motionRef }) {
   const vrm = useVRM(url);
   const bob = useRef(0);
   const bones = useRef(null);
@@ -635,14 +659,22 @@ function VRMAvatar({ url, moving, motionRef }) {
     if (!vrm?.scene) return;
     const isMoving = motionRef?.current?.moving ?? moving;
     const motionSpeed = motionRef?.current?.speed ?? (moving ? 1 : 0);
-    bob.current += delta * (isMoving ? THREE.MathUtils.lerp(7, 11, motionSpeed) : 2);
-    vrm.scene.position.y = Math.sin(bob.current) * (isMoving ? 0.035 * motionSpeed : 0.012);
-    animateVRMWalk(vrm, bob.current, isMoving, delta, bones, motionSpeed);
+    const isJumping = motionRef?.current?.jumping ?? jumping;
+    
+    bob.current += delta * (isMoving ? THREE.MathUtils.lerp(7, 11, motionSpeed) : isJumping ? 0 : 2);
+    
+    if (isJumping) {
+      vrm.scene.position.y = Math.sin(bob.current) * 0.12;
+    } else {
+      vrm.scene.position.y = Math.sin(bob.current) * (isMoving ? 0.035 * motionSpeed : 0.012);
+    }
+    
+    animateVRMWalk(vrm, bob.current, isMoving && !isJumping, delta, bones, motionSpeed);
     vrm.update(delta);
   });
 
   if (!vrm?.scene) {
-    return <FallbackAvatar color="#4f8cff" moving={moving} motionRef={motionRef} />;
+    return <FallbackAvatar color="#4f8cff" moving={moving} jumping={jumping} motionRef={motionRef} />;
   }
 
   return <primitive object={vrm.scene} scale={1.15} rotation-y={Math.PI} />;
@@ -688,7 +720,7 @@ function useVRM(url) {
   return vrm;
 }
 
-function FallbackAvatar({ color, moving, motionRef }) {
+function FallbackAvatar({ color, moving, jumping, motionRef }) {
   const group = useRef();
   const leftArm = useRef();
   const rightArm = useRef();
@@ -698,19 +730,32 @@ function FallbackAvatar({ color, moving, motionRef }) {
   useFrame(({ clock }) => {
     if (!group.current) return;
     const isMoving = motionRef?.current?.moving ?? moving;
+    const isJumping = motionRef?.current?.jumping ?? jumping;
     const motionSpeed = motionRef?.current?.speed ?? (moving ? 1 : 0);
-    const speed = isMoving ? THREE.MathUtils.lerp(7, 10, motionSpeed) : 2;
+    const speed = isMoving ? THREE.MathUtils.lerp(7, 10, motionSpeed) : isJumping ? 0 : 2;
     const phase = clock.elapsedTime * speed;
     const stride = isMoving ? 0.55 * motionSpeed : 0.06;
 
-    group.current.position.y = Math.abs(Math.sin(phase)) * (isMoving ? 0.075 * motionSpeed : 0.012);
+    if (isJumping) {
+      group.current.position.y = Math.sin(phase) * 0.2;
+    } else {
+      group.current.position.y = Math.abs(Math.sin(phase)) * (isMoving ? 0.075 * motionSpeed : 0.012);
+    }
+    
     group.current.rotation.z = Math.sin(phase) * (isMoving ? 0.035 * motionSpeed : 0.012);
 
     if (leftArm.current && rightArm.current && leftLeg.current && rightLeg.current) {
-      leftArm.current.rotation.x = Math.sin(phase) * stride;
-      rightArm.current.rotation.x = Math.sin(phase + Math.PI) * stride;
-      leftLeg.current.rotation.x = Math.sin(phase + Math.PI) * stride * 0.8;
-      rightLeg.current.rotation.x = Math.sin(phase) * stride * 0.8;
+      if (isJumping) {
+        leftArm.current.rotation.x = -0.4;
+        rightArm.current.rotation.x = -0.4;
+        leftLeg.current.rotation.x = 0.3;
+        rightLeg.current.rotation.x = 0.3;
+      } else {
+        leftArm.current.rotation.x = Math.sin(phase) * stride;
+        rightArm.current.rotation.x = Math.sin(phase + Math.PI) * stride;
+        leftLeg.current.rotation.x = Math.sin(phase + Math.PI) * stride * 0.8;
+        rightLeg.current.rotation.x = Math.sin(phase) * stride * 0.8;
+      }
     }
   });
 
@@ -994,6 +1039,7 @@ function useKeyMap() {
     backward: false,
     left: false,
     right: false,
+    jump: false,
   });
 
   React.useEffect(() => {
@@ -1011,6 +1057,7 @@ function useKeyMap() {
       if (["s", "arrowdown"].includes(key)) keys.current.backward = pressed;
       if (["a", "arrowleft"].includes(key)) keys.current.left = pressed;
       if (["d", "arrowright"].includes(key)) keys.current.right = pressed;
+      if (key === " ") keys.current.jump = pressed;
     };
 
     const down = (event) => setKey(event, true);
