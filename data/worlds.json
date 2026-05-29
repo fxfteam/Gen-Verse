@@ -1,0 +1,10 @@
+{
+  "worlds": [
+    {
+      "id": "gen-plaza",
+      "name": "Gen Plaza",
+      "script": "verse.api.platform({\n  id: \"central-plaza\",\n  position: [0, 0.02, -2.6],\n  scale: [6, 0.08, 2.2],\n  color: \"#87b7d4\"\n});\n\nverse.api.sign({\n  id: \"plaza-label\",\n  text: \"GEN VERSE PLAZA\",\n  position: [0, 0.09, -2.6],\n  color: \"#1d3557\",\n  size: 0.42\n});\n\nfor (let i = 0; i < 8; i++) {\n  const angle = (Math.PI * 2 * i) / 8;\n  verse.api.tree({\n    id: \"ring-tree-\" + i,\n    position: [Math.cos(angle) * 9, 0, Math.sin(angle) * 9],\n    scale: 1\n  });\n}",
+      "updatedAt": 1780047507723
+    }
+  ]
+}
