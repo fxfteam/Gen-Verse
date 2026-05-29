@@ -17,13 +17,14 @@ const io = new Server(httpServer, {
 
 const players = new Map();
 const chatHistory = [];
+const avatarStorage = new Map();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const uploadPath = path.join(__dirname, "..", "uploads");
 const dataPath = path.join(__dirname, "..", "data");
 const worldsPath = path.join(dataPath, "worlds.json");
 
-await mkdir(uploadPath, { recursive: true });
 await mkdir(dataPath, { recursive: true });
+// uploadPath は Vercel 環境では作成不可なため、メモリストレージを使用
 
 const defaultWorldScript = `verse.api.platform({
   id: "central-plaza",
@@ -93,14 +94,22 @@ app.post("/api/avatar", express.raw({ type: "application/octet-stream", limit: "
   }
 
   const id = crypto.randomUUID();
-  const filename = `${id}.vrm`;
-  await writeFile(path.join(uploadPath, filename), req.body);
+  avatarStorage.set(id, req.body);
   const origin = `${req.protocol}://${req.get("host")}`;
-  res.json({ url: `${origin}/avatars/${filename}` });
+  res.json({ url: `${origin}/avatars/${id}.vrm` });
 });
 
-app.use("/avatars", express.static(uploadPath));
 app.use(express.json({ limit: "1mb" }));
+
+app.get("/avatars/:id.vrm", (req, res) => {
+  const buffer = avatarStorage.get(req.params.id);
+  if (!buffer) {
+    res.status(404).json({ error: "Avatar not found." });
+    return;
+  }
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.send(buffer);
+});
 
 app.get("/api/worlds", (_req, res) => {
   res.json({ worlds });
