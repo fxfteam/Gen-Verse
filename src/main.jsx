@@ -726,43 +726,54 @@ function FallbackAvatar({ color, moving, jumping, motionRef }) {
   const rightArm = useRef();
   const leftLeg = useRef();
   const rightLeg = useRef();
+  const torso = useRef();
 
   useFrame(({ clock }) => {
     if (!group.current) return;
     const isMoving = motionRef?.current?.moving ?? moving;
     const isJumping = motionRef?.current?.jumping ?? jumping;
     const motionSpeed = motionRef?.current?.speed ?? (moving ? 1 : 0);
-    const speed = isMoving ? THREE.MathUtils.lerp(7, 10, motionSpeed) : isJumping ? 0 : 2;
+    const speed = isMoving ? THREE.MathUtils.lerp(6, 9, motionSpeed) : isJumping ? 0 : 1.5;
     const phase = clock.elapsedTime * speed;
-    const stride = isMoving ? 0.55 * motionSpeed : 0.06;
 
     if (isJumping) {
       group.current.position.y = Math.sin(phase) * 0.2;
     } else {
-      group.current.position.y = Math.abs(Math.sin(phase)) * (isMoving ? 0.075 * motionSpeed : 0.012);
+      const bobSmooth = Math.sin(phase * 0.5) * (isMoving ? 0.04 * motionSpeed : 0.008);
+      group.current.position.y = Math.max(0, bobSmooth);
     }
-    
-    group.current.rotation.z = Math.sin(phase) * (isMoving ? 0.035 * motionSpeed : 0.012);
 
-    if (leftArm.current && rightArm.current && leftLeg.current && rightLeg.current) {
+    if (leftArm.current && rightArm.current && leftLeg.current && rightLeg.current && torso.current) {
       if (isJumping) {
         leftArm.current.rotation.x = -0.4;
         rightArm.current.rotation.x = -0.4;
         leftLeg.current.rotation.x = 0.3;
         rightLeg.current.rotation.x = 0.3;
+        torso.current.rotation.z = 0;
       } else {
-        leftArm.current.rotation.x = Math.sin(phase) * stride;
-        rightArm.current.rotation.x = Math.sin(phase + Math.PI) * stride;
-        leftLeg.current.rotation.x = Math.sin(phase + Math.PI) * stride * 0.8;
-        rightLeg.current.rotation.x = Math.sin(phase) * stride * 0.8;
+        const walkCycle = phase % (Math.PI * 2);
+        const legPhase = Math.sin(walkCycle);
+        const legLift = (Math.sin(walkCycle) + 1) * 0.5;
+        
+        const armSwing = Math.sin(walkCycle) * 0.38 * motionSpeed;
+        const legSwing = Math.sin(walkCycle) * 0.48 * motionSpeed;
+        const legHeight = (legLift - 0.5) * 0.35 * motionSpeed;
+        
+        leftArm.current.rotation.x = armSwing;
+        rightArm.current.rotation.x = armSwing + Math.PI;
+        leftLeg.current.rotation.x = legSwing + legHeight;
+        rightLeg.current.rotation.x = legSwing - Math.PI + legHeight;
+        
+        torso.current.rotation.z = Math.sin(walkCycle * 0.5) * 0.04 * motionSpeed;
       }
     }
   });
 
   return (
     <group ref={group}>
-      <group ref={leftArm} position={[-0.43, 1.02, 0]}>
-        <mesh castShadow position={[0, -0.29, 0]}>
+      <group ref={torso}>
+        <group ref={leftArm} position={[-0.43, 1.02, 0]}>
+          <mesh castShadow position={[0, -0.29, 0]}>
           <capsuleGeometry args={[0.075, 0.42, 6, 10]} />
           <meshStandardMaterial color={color || "#7dd3fc"} roughness={0.58} />
         </mesh>
@@ -801,6 +812,7 @@ function FallbackAvatar({ color, moving, jumping, motionRef }) {
           <meshStandardMaterial color="#263449" roughness={0.6} />
         </mesh>
       </group>
+      </group>
     </group>
   );
 }
@@ -815,6 +827,8 @@ function animateVRMWalk(vrm, phase, moving, delta, cacheRef, motionSpeed = 1) {
       hips: getBone("hips"),
       spine: getBone("spine"),
       chest: getBone("chest"),
+      leftShoulder: getBone("leftShoulder"),
+      rightShoulder: getBone("rightShoulder"),
       leftUpperArm: getBone("leftUpperArm"),
       rightUpperArm: getBone("rightUpperArm"),
       leftLowerArm: getBone("leftLowerArm"),
@@ -828,23 +842,28 @@ function animateVRMWalk(vrm, phase, moving, delta, cacheRef, motionSpeed = 1) {
 
   const bones = cacheRef.current;
   const walk = moving ? THREE.MathUtils.clamp(motionSpeed, 0, 1) : 0;
-  const armSwing = Math.sin(phase) * 0.34 * walk;
-  const legSwing = Math.sin(phase) * 0.42 * walk;
-  const kneeBend = Math.max(0, Math.sin(phase + Math.PI / 2)) * 0.18 * walk;
+  
+  const walkCycle = phase % (Math.PI * 2);
+  const armSwing = Math.sin(walkCycle) * 0.38 * walk;
+  const legSwing = Math.sin(walkCycle) * 0.45 * walk;
+  const legLift = Math.max(0, Math.sin(walkCycle)) * 0.22 * walk;
+  const shoulderRoll = Math.sin(walkCycle * 0.5) * 0.08 * walk;
+  const hipSway = Math.sin(walkCycle) * 0.06 * walk;
   const idleBreath = Math.sin(phase * 0.45) * 0.018;
-  const bodySway = Math.sin(phase) * (moving ? 0.045 : 0.012);
 
-  applyBoneRotation(bones.leftUpperArm, delta, -0.08 + armSwing, 0.08, -1.18);
-  applyBoneRotation(bones.rightUpperArm, delta, -0.08 - armSwing, -0.08, 1.18);
-  applyBoneRotation(bones.leftLowerArm, delta, -0.18 + armSwing * 0.25, 0, -0.22);
-  applyBoneRotation(bones.rightLowerArm, delta, -0.18 - armSwing * 0.25, 0, 0.22);
-  applyBoneRotation(bones.leftUpperLeg, delta, -legSwing, 0, 0.03);
-  applyBoneRotation(bones.rightUpperLeg, delta, legSwing, 0, -0.03);
-  applyBoneRotation(bones.leftLowerLeg, delta, kneeBend, 0, 0);
-  applyBoneRotation(bones.rightLowerLeg, delta, Math.max(0, Math.sin(phase - Math.PI / 2)) * 0.18 * walk, 0, 0);
-  applyBoneRotation(bones.spine, delta, idleBreath, 0, bodySway);
-  applyBoneRotation(bones.chest, delta, idleBreath * 0.5, 0, bodySway * 0.5);
-  applyBoneRotation(bones.hips, delta, 0, 0, -bodySway * 0.45);
+  applyBoneRotation(bones.leftUpperArm, delta, -0.06 + armSwing * 0.8, 0.12 + shoulderRoll, -1.2);
+  applyBoneRotation(bones.rightUpperArm, delta, -0.06 - armSwing * 0.8, -0.12 - shoulderRoll, 1.2);
+  applyBoneRotation(bones.leftLowerArm, delta, -0.25 + armSwing * 0.35, 0, -0.3);
+  applyBoneRotation(bones.rightLowerArm, delta, -0.25 - armSwing * 0.35, 0, 0.3);
+  
+  applyBoneRotation(bones.leftUpperLeg, delta, -legSwing - legLift, 0, 0.02);
+  applyBoneRotation(bones.rightUpperLeg, delta, legSwing - legLift, 0, -0.02);
+  applyBoneRotation(bones.leftLowerLeg, delta, Math.max(0, Math.sin(walkCycle - Math.PI / 3)) * 0.28 * walk, 0, 0);
+  applyBoneRotation(bones.rightLowerLeg, delta, Math.max(0, Math.sin(walkCycle + Math.PI - Math.PI / 3)) * 0.28 * walk, 0, 0);
+  
+  applyBoneRotation(bones.spine, delta, idleBreath * 0.8, 0, hipSway * 0.5);
+  applyBoneRotation(bones.chest, delta, idleBreath * 0.4, 0, hipSway * 0.3);
+  applyBoneRotation(bones.hips, delta, 0, 0, -hipSway * 0.6);
 }
 
 function applyBoneRotation(bone, delta, x = 0, y = 0, z = 0) {
